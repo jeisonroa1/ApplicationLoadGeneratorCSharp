@@ -25,12 +25,19 @@ namespace mParticle.LoadGenerator
                 Console.WriteLine("Failed to parse configuration.");
                 return;
             }
-            HttpClient client = new HttpClient();
+            for (int i = 0 ; i < config.TargetRPS ; i++) // check if the time is less than the total time of the test in the configuration file (in minutes)
+            {
+                // Run all the RPS required every second.
+                // Count for HTTP Status code type 5XX 4XX 2XX
+                // Print every iteration the Current RPS and the Target RPS. Also the Status Code counts.
+                var response = doRequest(config);
+                Console.WriteLine(response);
+            }
             // TODO Do some work!
         }
 
         
-        public async Task<JObject> doRequest(Config config)
+        public static async Task<JObject> doRequest(Config config)
         {
             DateTime saveUtcNow = DateTime.UtcNow;
             string content = "{\"name\":"+ config.UserName +
