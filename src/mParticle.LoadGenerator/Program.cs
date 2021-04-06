@@ -1,17 +1,24 @@
 ﻿using System;
-using System.IO;
 using System.Net;
 using System.Net.Http;
-using System.Text;
+using System.Net.Http.Headers;
 using System.Threading.Tasks;
-using Newtonsoft.Json.Linq;
 using System.Globalization;
 using System.Threading;
+using System.Diagnostics;
 
 namespace mParticle.LoadGenerator
 {
+    public class Content
+    {
+        public string name { get; set; }
+        public string date { get; set; }
+    }
     public sealed class Program
     {
+        private static SemaphoreSlim semaphore;
+        private static HttpClient HttpClient = new HttpClient();
+        
         public static async Task Main(string[] args)
         {
             string configFile = "config.json";
@@ -27,98 +34,89 @@ namespace mParticle.LoadGenerator
                 Console.WriteLine("Failed to parse configuration.");
                 return;
             }
-
-            //int a = 0;
-            //int b = 0;
-            //int c = 0;
-
-            for (int i = 0 ; i < config.TargetRPS ; i++) // check if the time is less than the total time of the test in the configuration file (in minutes)
+            
+            SetHttpRequest(config);
+            int a = 0,b = 0,c = 0,d = 0;
+            int currentRPS = 0;
+            Stopwatch timeMeasure = new Stopwatch();
+            Stopwatch totalTime = new Stopwatch();
+            totalTime.Start();
+            timeMeasure.Start();
+            for ( int i = 0; i<config.TargetRPS ; i++) 
             {
-                //bool Completed = ExecuteWithTimeLimit(TimeSpan.FromMilliseconds(1000), async() =>
-                //{
-                //   var response = await doRequest(config);
-                //});
-                // Run all the RPS required every second.
-                // Count for HTTP Status code type 5XX 4XX 2XX
-                // Print every iteration the Current RPS and the Target RPS. Also the Status Code counts.
-                var response = await doRequest(config);
-                foreach (var value in response.Properties())
+                if (totalTime.ElapsedMilliseconds > config.ExecTime*60000)
                 {
-                     //Console.WriteLine(value);
+                    i = (int) config.TargetRPS;
+                    Console.WriteLine("Total test time exceded.");
                 }
+                
+                if (timeMeasure.ElapsedMilliseconds > 1000)
+                {
+                    Console.WriteLine(" |||| Current RPS: " + currentRPS + " Desired RPS: " + config.TargetRPS + " |||||| OK: " + a + " | Forbidden: " + b + " | TooManyRequests " + c + " | Others: "+ d);
+                    timeMeasure.Reset();
+                    timeMeasure.Start();
+                    currentRPS = 0 ;
+                }
+                else
+                {
+                    await Task.Run(async () =>
+                    {
+                        var response = await doRequest(config);
+                        currentRPS++;
+                        if( response == "OK"){a++;}
+                        if( response == "Forbidden"){b++;                        }
+                        if( response == "TooManyRequests"){c++;}
+                        if( response != "OK" && response != "Forbidden" && response != "TooManyRequests"){d++;}
+                        //Console.Clear();
+                        //Console.WriteLine(response + " |||| Current RPS: " + currentRPS + " Desired RPS: " + config.TargetRPS );
+                    });
 
-               
+                }
             }
-            // TODO Do some work!
+            
+                Console.WriteLine("OK: " + a + " | Forbidden: " + b + " | TooManyRequests " + c + " | Others: "+ d);
         }
-
-        public static bool ExecuteWithTimeLimit(TimeSpan timeSpan, Action codeBlock)
-        {
-            try
-            {
-                Task task = Task.Factory.StartNew(() => codeBlock());
-                task.Wait(timeSpan);
-
-                return task.IsCompleted;
-            }
-            catch (AggregateException ae)
-            {
-                throw ae.InnerExceptions[0];
-            }   
-        }
-
-
-        
-
-        
-        public static async Task<JObject> doRequest(Config config)
+        private static async Task<String> doRequest(Config config)
         {
             CultureInfo enUS = new CultureInfo("en-US");
             DateTime UtcNow = DateTime.UtcNow;
             string saveUtcNow = DateTime.UtcNow.ToString("g", enUS);
 
-            string content = "{\"name\": \""+ config.UserName +
-                             "\" ,\"date\": \"" + saveUtcNow + "\"}";
-
-            Console.WriteLine(content);
-            byte[] data = Encoding.UTF8.GetBytes(content);
-            WebRequest request = WebRequest.Create(config.ServerURL);
-            request.Method = "POST"; 
-            request.ContentType = "application/json";
-            request.Headers.Add("X-Api-Key",config.AuthKey);
-            request.ContentLength = data.Length;
-            using (Stream stream = request.GetRequestStream())
-            {
-                stream.Write(data, 0, data.Length);
-            }
-
+            Content content = new Content
+                {
+                    name = config.UserName,
+                    date = saveUtcNow,
+                };
             try
             {
-                HttpWebResponse response =  (HttpWebResponse) await request.GetResponseAsync();
-                Console.WriteLine(response.StatusCode);
-                using (StreamReader reader = new StreamReader(response.GetResponseStream()))
-                {
-                    string responseContent = reader.ReadToEnd();
-                    JObject adResponse = Newtonsoft.Json.JsonConvert.DeserializeObject<JObject>(responseContent);
-                    return adResponse;
-                }
+                await semaphore.WaitAsync();
+                HttpResponseMessage response = await HttpClient.PostAsJsonAsync( "Live/", content);
+                return  response.StatusCode.ToString();
             }
-            catch (WebException webException)
+            catch(Exception ex) when (ex is OperationCanceledException || ex is TaskCanceledException)
             {
-                HttpWebResponse wRespStatusCode = ((HttpWebResponse) webException.Response);                
-                Console.WriteLine(wRespStatusCode.StatusCode); ///////////////////////////////
-
-                if (webException.Response != null)
-                {
-                    using (StreamReader reader = new StreamReader(webException.Response.GetResponseStream()))
-                    {
-                        string responseContent = reader.ReadToEnd();
-                        return Newtonsoft.Json.JsonConvert.DeserializeObject<JObject>(responseContent); ;
-                    }
-                }
+                Console.WriteLine("Timed out");
+                return  "Error";
             }
+            finally
+            {
+                semaphore.Release();
+            } 
 
-   return null;
-}
+        }
+        private static void SetMaxConcurrency(string url, int maxConcurrentRequests)
+            {
+                ServicePointManager.FindServicePoint(new Uri(url)).ConnectionLimit = maxConcurrentRequests;
+            }
+        private static void SetHttpRequest(Config config)
+            {
+                HttpClient.BaseAddress = new Uri(config.ServerURL);
+                HttpClient.DefaultRequestHeaders.Add("X-Api-Key", config.AuthKey); 
+                HttpClient.DefaultRequestHeaders.Accept.Clear();
+                HttpClient.DefaultRequestHeaders.Accept.Add(
+                    new MediaTypeWithQualityHeaderValue("application/json"));
+                semaphore = new SemaphoreSlim((int) config.MaxThreads);
+                SetMaxConcurrency(config.ServerURL, (int) config.MaxThreads);
+            }
     }
 }

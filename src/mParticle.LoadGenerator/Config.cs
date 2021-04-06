@@ -12,6 +12,8 @@ namespace mParticle.LoadGenerator
         public uint TargetRPS { get; set; }
         public string AuthKey { get; set; }
         public string UserName { get; set; }
+        public uint ExecTime { get; set; }
+        public uint MaxThreads { get; set; }
 
         /// <summary>
         /// Read the arguments file and, if successful, return the specified arguments values.
@@ -56,6 +58,9 @@ namespace mParticle.LoadGenerator
             ValidateArgument(arguments.TargetRPS, "targetRPS", ref success);
             ValidateArgument(arguments.AuthKey, "authKey", ref success);
             ValidateArgument(arguments.UserName, "userName", ref success);
+            ValidateArgument(arguments.ExecTime, "ExecTime", ref success);
+            ValidateArgument(arguments.MaxThreads, "MaxThreads", ref success);
+
 
             return success ? arguments : null;
         }
