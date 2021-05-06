@@ -1,8 +1,8 @@
 ﻿{
   "ServerURL": "https://c1i55mxsd6.execute-api.us-west-2.amazonaws.com",
-  "TargetRPS": "1000",
+  "TargetRPS": "100",
   "AuthKey": "RIqhxTAKNGaSw2waOY2CW3LhLny2EpI27i56VA6N",
   "UserName": "JEISON_ROA",
-  "ExecTime": "1",
-  "MaxThreads": "1"
+  "ExecTime": "10",
+  "MaxThreads": "4"
 }
